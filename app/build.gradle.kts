@@ -13,8 +13,8 @@ android {
         applicationId = "org.nextcolor.securetap"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     // The release key never lives in the repo. It comes from keystore.properties

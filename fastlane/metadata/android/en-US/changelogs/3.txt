@@ -1,0 +1,6 @@
+Send any file up to 4 MB, or photos in original quality.
+Choose whether photos keep location and camera info.
+Big sends show how long they'll take and ask first.
+Done asks before discarding an unsaved photo or file.
+Send options no longer get cut off on small screens.
+Both phones need this version.
