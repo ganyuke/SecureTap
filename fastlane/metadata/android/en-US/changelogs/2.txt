@@ -1,0 +1,7 @@
+Photos now send reliably.
+Send the same thing to another phone with Send again.
+The Sent screen shows which phone received it.
+Cancel a transfer at any time. If the phones slip apart, it pauses until you tap again.
+What you're sending is only shared while the Send screen is open.
+The verification code is now under Details.
+Clearer wording throughout.
