@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Password
@@ -46,9 +47,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -76,25 +79,44 @@ fun SendScreen(activity: ComponentActivity) {
         onResume = { runCatching { cardEmulation.setPreferredService(activity, component) } },
     )
 
+    // Drops the payload if nobody picks it up, including when the phones were pulled apart mid-transfer.
+    LaunchedEffect(Unit) {
+        while (true) {
+            Outbox.expireIfDue()
+            delay(500)
+        }
+    }
+
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         when (val s = state) {
             Outbox.State.Idle -> Composer()
-            is Outbox.State.Armed -> ArmedCard(s)
+            is Outbox.State.Armed -> Armed(s)
             is Outbox.State.Sending -> {
-                Text("Sending…", style = MaterialTheme.typography.headlineSmall)
-                SasCode(s.sas)
+                Text(if (s.connected) "Sending…" else "Paused", style = MaterialTheme.typography.headlineSmall)
                 LinearProgressIndicator(progress = { s.sent.toFloat() / s.total }, Modifier.fillMaxWidth())
-                Text("Keep the phones together.")
+                progressLabel(s.sent, s.total)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text(if (s.connected) "Keep the phones together" else "Hold the phones together again to continue")
+                OutlinedButton(onClick = Outbox::disarm) { Text("Cancel") }
             }
             is Outbox.State.Sent -> {
-                Text("Sent ✓", style = MaterialTheme.typography.headlineSmall)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
+                    Text("Sent", style = MaterialTheme.typography.headlineSmall)
+                }
                 Text(s.summary)
-                SasCode(s.sas)
-                Text("The data has been wiped from this phone.", style = MaterialTheme.typography.bodySmall)
-                Button(onClick = Outbox::disarm) { Text("Send something else") }
+                Text(
+                    "Tap Done to remove it from this phone",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TransferDetails(s.sas)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = Outbox::sendAgain, Modifier.weight(1f)) { Text("Send again") }
+                    Button(onClick = Outbox::disarm, Modifier.weight(1f)) { Text("Done") }
+                }
             }
         }
     }
@@ -102,7 +124,7 @@ fun SendScreen(activity: ComponentActivity) {
 
 @Composable
 private fun Composer() {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var kind by rememberSaveable { mutableStateOf(Kind.Text) }
     var text by remember { mutableStateOf("") }
@@ -119,7 +141,7 @@ private fun Composer() {
             imageBytes = try {
                 withContext(Dispatchers.Default) { ImageCompressor.compress(context, uri) }
             } catch (e: Exception) {
-                error = "Couldn't load that picture: ${e.message}"
+                error = "Couldn't open this photo. Try another one."
                 null
             }
             busy = false
@@ -154,17 +176,20 @@ private fun Composer() {
         )
         Kind.Link -> OutlinedTextField(
             text, { text = it }, Modifier.fillMaxWidth(),
-            label = { Text("https://…") }, singleLine = true,
+            label = { Text("Link") }, placeholder = { Text("example.com") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
         )
         Kind.Secret -> OutlinedTextField(
             text, { text = it }, Modifier.fillMaxWidth(),
-            label = { Text("Password or secret") }, singleLine = true,
+            label = { Text("Password") }, singleLine = true,
             visualTransformation = if (reveal) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
             trailingIcon = {
                 IconButton(onClick = { reveal = !reveal }) {
-                    Icon(if (reveal) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, "Show")
+                    Icon(
+                        if (reveal) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        if (reveal) "Hide password" else "Show password",
+                    )
                 }
             },
         )
@@ -172,7 +197,8 @@ private fun Composer() {
             OutlinedButton(
                 onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 enabled = !busy,
-            ) { Text(if (busy) "Compressing…" else "Choose a photo") }
+            ) { Text(if (imageBytes == null) "Choose photo" else "Change photo") }
+            if (busy) Text("Preparing photo…", style = MaterialTheme.typography.bodySmall)
             imageBytes?.let { bytes ->
                 val bmp = remember(bytes) { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
                 if (bmp != null) {
@@ -182,8 +208,9 @@ private fun Composer() {
                     )
                 }
                 Text(
-                    "${bytes.size / 1024} KB · about ${estimateSeconds(bytes.size)} s to transfer · location data removed",
+                    "${bytes.size / 1024} KB · About ${estimateSeconds(bytes.size)} seconds to send · Location info removed",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -191,73 +218,63 @@ private fun Composer() {
 
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
+    val payload: Payload? = when (kind) {
+        Kind.Text -> text.takeIf { it.isNotBlank() }?.let { Payload.Text(it) }
+        Kind.Link -> text.trim().takeIf { it.isNotEmpty() }?.let { Payload.Link(if ("://" in it) it else "https://$it") }
+        Kind.Secret -> text.takeIf { it.isNotEmpty() }?.let { Payload.Secret(it) }
+        Kind.Image -> imageBytes?.let { Payload.Image("image/jpeg", it) }
+    }
+
     Button(
         onClick = {
-            error = null
-            val payload = when (kind) {
-                Kind.Text -> text.takeIf { it.isNotBlank() }?.let { Payload.Text(it) }
-                Kind.Link -> text.trim().takeIf { it.isNotEmpty() }?.let {
-                    Payload.Link(if ("://" in it) it else "https://$it")
-                }
-                Kind.Secret -> text.takeIf { it.isNotEmpty() }?.let { Payload.Secret(it) }
-                Kind.Image -> imageBytes?.let { Payload.Image("image/jpeg", it) }
-            }
-            if (payload == null) {
-                error = "Nothing to send yet."
-                return@Button
-            }
-            val summary = when (payload) {
-                is Payload.Secret -> "A password (${text.length} characters)"
-                is Payload.Image -> "A photo (${payload.bytes.size / 1024} KB)"
-                is Payload.Link -> payload.url
-                is Payload.Text -> "A message (${text.length} characters)"
+            val p = payload ?: return@Button
+            val summary = when (p) {
+                is Payload.Secret -> "Password · ${text.length} characters"
+                is Payload.Image -> "Photo · ${p.bytes.size / 1024} KB"
+                is Payload.Link -> p.url
+                is Payload.Text -> "Message · ${text.length} characters"
             }
             try {
-                Outbox.arm(payload, summary)
+                Outbox.arm(p, summary)
                 text = ""
                 imageBytes = null
             } catch (e: Exception) {
-                error = e.message
+                error = "Too big to send. Try something smaller."
             }
         },
-        enabled = !busy,
+        enabled = payload != null && !busy,
         modifier = Modifier.fillMaxWidth(),
-    ) { Text("Encrypt & get ready to tap") }
+    ) { Text("Send") }
 
     Text(
-        "Each transfer uses fresh keys (ECDH P-256 → AES-256-GCM) and works once. " +
-            "Both phones show a 6-digit code; check that they match.",
+        "Encrypted end to end. Each send reaches one phone and expires after 2 minutes.",
         style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
 @Composable
-private fun ArmedCard(s: Outbox.State.Armed) {
+private fun Armed(s: Outbox.State.Armed) {
     var remaining by remember { mutableLongStateOf(s.expiresAt - SystemClock.elapsedRealtime()) }
     LaunchedEffect(s) {
-        while (true) {
+        while (remaining > 0) {
             remaining = s.expiresAt - SystemClock.elapsedRealtime()
-            if (remaining <= 0) {
-                Outbox.disarm()
-                break
-            }
             delay(500)
         }
     }
+    val seconds = (remaining / 1000).coerceAtLeast(0)
     Text("Ready to send", style = MaterialTheme.typography.headlineSmall)
     Text(s.summary)
     Text(
-        "Open Receive on the other phone, then hold the two phones back to back.",
+        "On the other phone, open SecureTap and go to Receive. Then hold the phones back to back.",
         style = MaterialTheme.typography.bodyLarge,
     )
-    Text("Expires in ${(remaining / 1000).coerceAtLeast(0)} s", style = MaterialTheme.typography.bodySmall)
+    Text(
+        "Expires in %d:%02d".format(seconds / 60, seconds % 60),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
     OutlinedButton(onClick = Outbox::disarm) { Text("Cancel") }
-}
-
-@Composable
-fun SasCode(sas: String) {
-    Text("Verification code", style = MaterialTheme.typography.labelLarge)
-    Text(sas, style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
 }
 
 private fun estimateSeconds(bytes: Int): Int = (bytes / (8 * 1024)).coerceAtLeast(1)

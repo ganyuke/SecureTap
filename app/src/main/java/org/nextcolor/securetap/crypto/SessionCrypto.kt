@@ -74,7 +74,7 @@ object SessionCrypto {
 
     /**
      * Derives the session key and a 6-digit short authentication string (SAS). Both phones
-     * display the SAS; if they match, nobody relayed or swapped keys in the middle.
+     * show the SAS under Details; if they match, nobody relayed or swapped keys in the middle.
      */
     fun deriveKeys(
         ownPrivate: PrivateKey,

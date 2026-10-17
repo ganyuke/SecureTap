@@ -24,22 +24,19 @@ class ReceiverSession(private val random: SecureRandom = SecureRandom()) {
     private var received = 0
 
     /**
-     * @param chunkSize bytes to request per READ; larger is faster but needs extended-length
-     *   support from both NFC controllers. Falls back to short chunks automatically.
      * @throws IOException when the link drops (keep this session to resume)
      * @throws ProtocolException / GeneralSecurityException on a bad or tampered transfer
      */
     fun run(
         transport: ApduTransport,
-        chunkSize: Int = SHORT_CHUNK,
         onConnected: (sas: String) -> Unit = {},
         onProgress: (received: Int, total: Int) -> Unit = { _, _ -> },
     ): Result {
-        val select = checkOk(transport.transceive(Protocol.selectApdu()), "Sender isn't ready — tap Send on the other phone first")
+        val select = checkOk(transport.transceive(Protocol.selectApdu()), "Sender not ready", ProtocolException.Reason.SENDER_NOT_READY)
         if (select.size != 1 + SessionCrypto.PUBLIC_KEY_SIZE + Protocol.SESSION_ID_SIZE + 4) {
             throw ProtocolException("Unexpected handshake")
         }
-        if (select[0] != Protocol.VERSION) throw ProtocolException("Other phone runs an incompatible version")
+        if (select[0] != Protocol.VERSION) throw ProtocolException("Unsupported version ${select[0]}", ProtocolException.Reason.INCOMPATIBLE)
         val senderPub = select.copyOfRange(1, 1 + SessionCrypto.PUBLIC_KEY_SIZE)
         val sid = select.copyOfRange(1 + SessionCrypto.PUBLIC_KEY_SIZE, select.size - 4)
         val plaintextLen = Protocol.readInt(select, select.size - 4)
@@ -65,17 +62,10 @@ class ReceiverSession(private val random: SecureRandom = SecureRandom()) {
         if (total != plaintextLen + SessionCrypto.overhead()) throw ProtocolException("Length mismatch")
 
         val buf = buffer?.takeIf { it.size == total } ?: ByteArray(total).also { buffer = it; received = 0 }
-        var chunk = chunkSize.coerceIn(1, 0xFFFF)
         while (received < total) {
-            val want = minOf(chunk, total - received)
+            val want = minOf(SHORT_CHUNK, total - received)
             val cmd = Protocol.command(Protocol.INS_READ, Protocol.intBytes(received) + Protocol.sw(want))
-            val data = try {
-                checkOk(transport.transceive(cmd), "Read failed")
-            } catch (e: IOException) {
-                // Some controllers can't do long responses; drop to short chunks once.
-                if (chunk > SHORT_CHUNK) { chunk = SHORT_CHUNK; continue }
-                throw e
-            }
+            val data = checkOk(transport.transceive(cmd), "Read failed")
             if (data.isEmpty() || data.size > want) throw ProtocolException("Bad chunk")
             System.arraycopy(data, 0, buf, received, data.size)
             received += data.size
@@ -98,16 +88,24 @@ class ReceiverSession(private val random: SecureRandom = SecureRandom()) {
         return Result(payload, k.sas)
     }
 
-    private fun checkOk(resp: ByteArray, error: String): ByteArray {
+    private fun checkOk(
+        resp: ByteArray,
+        error: String,
+        reason: ProtocolException.Reason = ProtocolException.Reason.INVALID,
+    ): ByteArray {
         if (resp.size < 2) throw ProtocolException("Short response")
         val sw1 = resp[resp.size - 2]
         val sw2 = resp[resp.size - 1]
-        if (sw1 != 0x90.toByte() || sw2 != 0x00.toByte()) throw ProtocolException(error)
+        if (sw1 != 0x90.toByte() || sw2 != 0x00.toByte()) throw ProtocolException(error, reason)
         return resp.copyOfRange(0, resp.size - 2)
     }
 
     companion object {
-        /** Fits a standard short APDU response (256 bytes incl. status word). */
+        /**
+         * Bytes per READ. Fits a short APDU response (256 bytes including the status word).
+         * Card emulation can't reliably send longer responses, even when the reader's NFC
+         * controller supports extended-length APDUs: they arrive truncated.
+         */
         const val SHORT_CHUNK = 254
     }
 }

@@ -53,4 +53,6 @@ object Protocol {
     fun readShort(b: ByteArray, off: Int): Int = ((b[off].toInt() and 0xFF) shl 8) or (b[off + 1].toInt() and 0xFF)
 }
 
-class ProtocolException(message: String) : Exception(message)
+class ProtocolException(message: String, val reason: Reason = Reason.INVALID) : Exception(message) {
+    enum class Reason { SENDER_NOT_READY, INCOMPATIBLE, INVALID }
+}

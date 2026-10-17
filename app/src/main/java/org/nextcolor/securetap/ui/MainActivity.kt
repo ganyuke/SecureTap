@@ -25,6 +25,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
@@ -74,9 +76,11 @@ private fun App(activity: ComponentActivity) {
     val adapter = remember { NfcAdapter.getDefaultAdapter(activity) }
     var nfcEnabled by remember { mutableStateOf(adapter?.isEnabled == true) }
     OnResume { nfcEnabled = adapter?.isEnabled == true }
+    val snackbar = remember { SnackbarHostState() }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("SecureTap") }) },
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(
@@ -92,26 +96,27 @@ private fun App(activity: ComponentActivity) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             when {
-                adapter == null -> NfcProblem("This phone has no NFC.", null)
-                !nfcEnabled -> NfcProblem("NFC is turned off.") {
-                    activity.startActivity(Intent(Settings.ACTION_NFC_SETTINGS))
+                adapter == null -> NfcProblem("NFC isn't available", "This phone doesn't have NFC, so it can't send or receive", null)
+                !nfcEnabled -> NfcProblem("NFC is off", "Turn on NFC to send or receive") {
+                    activity.startActivity(Intent(Settings.Panel.ACTION_NFC))
                 }
                 tab == 0 -> SendScreen(activity)
-                else -> ReceiveScreen(activity, adapter)
+                else -> ReceiveScreen(activity, adapter, snackbar)
             }
         }
     }
 }
 
 @Composable
-private fun NfcProblem(message: String, onFix: (() -> Unit)?) {
+private fun NfcProblem(title: String, message: String, onFix: (() -> Unit)?) {
     Card(
         Modifier.padding(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(message, style = MaterialTheme.typography.titleMedium)
-            if (onFix != null) Button(onClick = onFix, Modifier.padding(top = 8.dp)) { Text("Open NFC settings") }
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(message, style = MaterialTheme.typography.bodyMedium)
+            if (onFix != null) Button(onClick = onFix, Modifier.padding(top = 8.dp)) { Text("Turn on") }
         }
     }
 }

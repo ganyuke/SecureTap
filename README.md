@@ -20,12 +20,14 @@ phone reads it in **reader mode** using ISO-DEP APDUs.
 with the session id, info bound to a SHA-256 transcript of both keys) → AES-256-GCM, with the
 transcript as associated data. Peer points are checked to be on the curve before ECDH.
 
-**Verification code:** both phones show a 6-digit code derived from the shared secret. If
-someone relays the connection and swaps keys, the two codes won't match. NFC's few-cm range
-makes this unlikely, but check the codes for anything sensitive.
+**Verification code:** after a transfer, both phones have a 6-digit code derived from the shared
+secret under **Details**. If someone relayed the connection and swapped keys, the two codes won't
+match. NFC's few-cm range makes that very unlikely, so the code is tucked away for anyone who wants
+to check.
 
 **Other protections**
-- One-shot: the sender wipes the payload after a successful transfer; it also expires after 2 min.
+- One receiver per send: each send uses fresh keys and ends after one transfer. The payload stays
+  in memory for **Send again** until you tap Done, and is wiped after 2 min without contact.
 - HCE only answers while the phone is unlocked (`requireDeviceUnlock`).
 - `FLAG_SECURE` blocks screenshots/recents thumbnails; backups are disabled.
 - Copied passwords are flagged as sensitive so Android 13+ hides the clipboard preview.

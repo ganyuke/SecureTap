@@ -18,10 +18,12 @@ class TransferTest {
         override fun onFinished() { finished = true }
     }
 
-    private fun transfer(payload: Payload, chunk: Int = ReceiverSession.SHORT_CHUNK): Pair<Payload, Boolean> {
+    private fun transfer(payload: Payload): Pair<Payload, Boolean> {
         val events = Recorder()
         val sender = SenderSession(payload.encode(), events)
-        val result = ReceiverSession().run(sender::process, chunk)
+        // Like card emulation on a real phone: responses longer than a short APDU get cut off.
+        val hce = ApduTransport { apdu -> sender.process(apdu).let { if (it.size > 256) it.copyOf(256) else it } }
+        val result = ReceiverSession().run(hce)
         assertEquals(events.sas, result.sas)
         return result.payload to events.finished
     }
@@ -40,9 +42,9 @@ class TransferTest {
     }
 
     @Test
-    fun imageRoundTripWithLargeChunks() {
+    fun imageRoundTrip() {
         val bytes = ByteArray(150_000) { (it * 31).toByte() }
-        val got = transfer(Payload.Image("image/jpeg", bytes), chunk = 4096).first as Payload.Image
+        val got = transfer(Payload.Image("image/jpeg", bytes)).first as Payload.Image
         assertEquals("image/jpeg", got.mimeType)
         assertArrayEquals(bytes, got.bytes)
     }

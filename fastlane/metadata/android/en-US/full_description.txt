@@ -1,13 +1,13 @@
 SecureTap sends a password, link, message or small photo from one Android phone to another when you tap them together. Everything is encrypted end to end with a fresh key for each transfer, and nothing goes through the internet.
 
-Put one phone on Send and the other on Receive, then hold their backs together. Both phones show a 6-digit code. If the codes match, nobody got in between.
+Put one phone on Send and the other on Receive, then hold them back to back.
 
 <b>Features</b>
 <ul>
 <li>Send text, passwords, links and photos</li>
 <li>Encrypted with ECDH P-256 and AES-256-GCM, with a new key for every transfer</li>
-<li>A 6-digit code on both phones to check that nobody got in between</li>
-<li>Whatever you send is wiped from the sending phone once it's received, or after 2 minutes</li>
+<li>A verification code under Details, to check that nobody intercepted the transfer</li>
+<li>Send the same thing to several phones one at a time, then it's wiped when you tap Done, or after 2 minutes</li>
 <li>Photos are shrunk and stripped of location and other metadata before sending</li>
 <li>Copied passwords are hidden from the clipboard preview, and screenshots are blocked</li>
 <li>If the phones slip apart, tap again to pick up where it left off</li>
