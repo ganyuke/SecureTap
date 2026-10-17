@@ -35,13 +35,21 @@ to check.
 - Received links are shown in full and only `http(s)` links can be opened.
 - The sender sees the name the receiving phone gives itself, so a tap to the wrong phone is
   noticed. The name can be faked by a modified receiver.
-- Photos are re-encoded as JPEG ≤ 120 KB, which also strips EXIF metadata such as GPS.
+- Photos are re-encoded as JPEG ≤ 120 KB by default. Re-encoding drops EXIF metadata such as GPS
+  unless **Keep location and camera info** is on (remembered). **Original quality** sends the
+  file untouched, metadata included.
+- Received files are saved to `Download/SecureTap` only when you tap Save. The sender picks the
+  name, so path separators and bidi overrides are removed. Done asks before discarding an
+  unsaved photo or file.
 - If the phones slip apart, tapping again **resumes** from the last received byte.
 
 ## Limits
 
 - NFC is slow, around 5–20 KB/s depending on hardware. A 120 KB photo means holding the phones
-  together for roughly 10–20 s. The hard cap is 512 KB.
+  together for roughly 6–24 s. Above 64 KB the sender sees the estimated time with a warning,
+  above 512 KB they have to confirm with **Send anyway**, and the hard cap is 4 MB.
+- Protocol version 2 (files, payloads over 512 KB). Phones on older versions show "update both
+  phones".
 - Reader mode turns off card emulation, so the sender must be on **Send** and the receiver on
   **Receive**.
 - Phone-to-phone HCE works on most devices but not all; a few NFC controllers are unreliable at it.

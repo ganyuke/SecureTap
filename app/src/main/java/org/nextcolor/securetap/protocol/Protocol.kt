@@ -16,7 +16,8 @@ package org.nextcolor.securetap.protocol
  * phone slipped away mid-transfer can tap again and continue READing from where it stopped.
  */
 object Protocol {
-    const val VERSION: Byte = 1
+    /** 2: files, and payloads up to 4 MB. */
+    const val VERSION: Byte = 2
     val AID = byteArrayOf(0xF0.toByte(), 0x53, 0x45, 0x43, 0x54, 0x41, 0x50, 0x01)
 
     const val CLA: Byte = 0x80.toByte()

@@ -1,18 +1,18 @@
-SecureTap sends a password, link, message or small photo from one Android phone to another when you tap them together. Everything is encrypted end to end with a fresh key for each transfer, and nothing goes through the internet.
+SecureTap sends a password, link, message, photo or small file from one Android phone to another when you tap them together. Everything is encrypted end to end with a fresh key for each transfer, and nothing goes through the internet.
 
 Put one phone on Send and the other on Receive, then hold them back to back.
 
 <b>Features</b>
 <ul>
-<li>Send text, passwords, links and photos</li>
+<li>Send text, passwords, links, photos and files</li>
 <li>Encrypted with ECDH P-256 and AES-256-GCM, with a new key for every transfer</li>
 <li>A verification code under Details, to check that nobody intercepted the transfer</li>
 <li>Send the same thing to several phones one at a time, then it's wiped when you tap Done, or after 2 minutes</li>
-<li>Photos are shrunk and stripped of location and other metadata before sending</li>
+<li>Photos are shrunk to send quickly, or sent in original quality. You choose whether location and camera info goes along</li>
 <li>Copied passwords are hidden from the clipboard preview, and screenshots are blocked</li>
 <li>If the phones slip apart, tap again to pick up where it left off</li>
 </ul>
 
-NFC is slow, so a photo means holding the phones together for 10 to 20 seconds. Sending phone to phone works on most phones, but a few NFC chips don't handle it well.
+NFC is slow, so a compressed photo means holding the phones together for 10 to 20 seconds, and larger files can take minutes. SecureTap tells you how long before you send. Sending phone to phone works on most phones, but a few NFC chips don't handle it well.
 
 Requires Android 10 or later with NFC.

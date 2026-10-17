@@ -9,6 +9,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.PersistableBundle
 import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import android.provider.Settings
 import android.content.ClipboardManager
 
@@ -64,6 +66,63 @@ object Actions {
         } catch (e: Exception) {
             resolver.delete(uri, null, null)
             null
+        }
+    }
+
+    /** Saves a received file to Downloads/SecureTap. The type comes from the name's extension. */
+    fun saveFile(context: Context, name: String, bytes: ByteArray): Uri? {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, name)
+            put(MediaStore.Downloads.MIME_TYPE, mimeType)
+            put(MediaStore.Downloads.RELATIVE_PATH, "Download/SecureTap")
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val resolver = context.contentResolver
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
+        return try {
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("No output stream")
+            values.clear()
+            values.put(MediaStore.Downloads.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+            uri
+        } catch (e: Exception) {
+            resolver.delete(uri, null, null)
+            null
+        }
+    }
+
+    class Picked(val name: String, val size: Long?)
+
+    /** Name and size of a picked document, when the provider reports them. */
+    fun describe(context: Context, uri: Uri): Picked {
+        var name: String? = null
+        var size: Long? = null
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use {
+            if (it.moveToFirst()) {
+                val n = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                val sz = it.getColumnIndex(OpenableColumns.SIZE)
+                if (n >= 0 && !it.isNull(n)) name = it.getString(n)
+                if (sz >= 0 && !it.isNull(sz)) size = it.getLong(sz)
+            }
+        }
+        return Picked(name ?: uri.lastPathSegment ?: "file", size)
+    }
+
+    /** Reads the whole document, or returns null as soon as it turns out to be bigger than [limit]. */
+    fun readUpTo(context: Context, uri: Uri, limit: Int): ByteArray? {
+        val input = context.contentResolver.openInputStream(uri) ?: error("Couldn't open $uri")
+        return input.use {
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(64 * 1024)
+            while (true) {
+                val n = it.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                if (out.size() > limit) return null
+            }
+            out.toByteArray()
         }
     }
 }

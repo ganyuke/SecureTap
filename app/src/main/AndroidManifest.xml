@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.NFC" />
+    <!-- Lets "Keep location and camera info" see a photo's GPS tags, which Android otherwise hides. -->
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <uses-feature android:name="android.hardware.nfc" android:required="true" />
     <uses-feature android:name="android.hardware.nfc.hce" android:required="true" />

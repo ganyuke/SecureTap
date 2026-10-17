@@ -55,6 +55,43 @@ class TransferTest {
     }
 
     @Test
+    fun fileRoundTrip() {
+        val bytes = ByteArray(40_000) { (it * 7).toByte() }
+        val got = transfer(Payload.File("notes.pdf", bytes)).first as Payload.File
+        assertEquals("notes.pdf", got.name)
+        assertArrayEquals(bytes, got.bytes)
+    }
+
+    @Test
+    fun payloadAboveConfirmSizeStillSends() {
+        val bytes = ByteArray(Payload.CONFIRM_SIZE + 10_000) { it.toByte() }
+        assertArrayEquals(bytes, (transfer(Payload.File("big.bin", bytes)).first as Payload.File).bytes)
+    }
+
+    @Test
+    fun payloadAboveHardLimitIsRefused() {
+        try {
+            Payload.File("huge.bin", ByteArray(Payload.MAX_ENCODED_SIZE)).encode()
+            fail("oversized payload was encoded")
+        } catch (_: ProtocolException) {}
+    }
+
+    @Test
+    fun receivedFileNamesCantActAsPaths() {
+        assertEquals("evil.sh", Payload.safeName("../../evil.sh"))
+        assertEquals("etcpasswd", Payload.safeName("/etc/passwd"))
+        assertEquals("file", Payload.safeName("..."))
+        assertEquals("invoicefdp.exe", Payload.safeName("invoice\u202Efdp.exe"))
+    }
+
+    @Test
+    fun longFileNamesKeepTheirExtension() {
+        val name = Payload.fitName("ä".repeat(300) + ".tar.gz")
+        assertTrue(name.endsWith(".gz"))
+        assertTrue(name.toByteArray().size <= 255)
+    }
+
+    @Test
     fun resumesAfterLinkDrops() {
         val bytes = ByteArray(20_000) { it.toByte() }
         val sender = SenderSession(Payload.Image("image/png", bytes).encode(), Recorder())

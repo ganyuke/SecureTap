@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.net.Uri
+import androidx.exifinterface.media.ExifInterface
+import java.io.File
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -18,8 +20,9 @@ object ImageCompressor {
     private const val MIN_DIM = 240
 
     /**
-     * Re-encodes the picture as a JPEG under [TARGET_BYTES]. Re-encoding also strips EXIF
-     * metadata such as GPS location; ImageDecoder applies the EXIF rotation first.
+     * Re-encodes the picture as a JPEG under [TARGET_BYTES]. Re-encoding drops the EXIF metadata,
+     * GPS location included; see [copyMetadata] to put it back. ImageDecoder applies the EXIF
+     * rotation first.
      */
     fun compress(context: Context, uri: Uri): ByteArray {
         val source = ImageDecoder.createSource(context.contentResolver, uri)
@@ -44,6 +47,48 @@ object ImageCompressor {
             bitmap = Bitmap.createScaledBitmap(bitmap, w, h, true)
         }
     }
+
+    /** Whether the picture's EXIF data says where it was taken. */
+    fun hasLocation(context: Context, uri: Uri): Boolean =
+        runCatching { context.contentResolver.openInputStream(uri)?.use { ExifInterface(it).latLong != null } }.getOrNull() == true
+
+    /**
+     * Copies date, camera and location tags from the picture at [source] into a JPEG made by
+     * [compress]. Orientation isn't copied because the pixels are already upright.
+     */
+    fun copyMetadata(context: Context, source: Uri, jpeg: ByteArray): ByteArray {
+        val from = context.contentResolver.openInputStream(source)?.use { ExifInterface(it) } ?: return jpeg
+        // ExifInterface can only rewrite a file, not a byte array.
+        val tmp = File.createTempFile("exif", ".jpg", context.cacheDir)
+        try {
+            tmp.writeBytes(jpeg)
+            val to = ExifInterface(tmp)
+            for (tag in KEPT_TAGS) from.getAttribute(tag)?.let { to.setAttribute(tag, it) }
+            to.saveAttributes()
+            return tmp.readBytes()
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    private val KEPT_TAGS = listOf(
+        ExifInterface.TAG_DATETIME, ExifInterface.TAG_DATETIME_ORIGINAL, ExifInterface.TAG_DATETIME_DIGITIZED,
+        ExifInterface.TAG_OFFSET_TIME, ExifInterface.TAG_OFFSET_TIME_ORIGINAL, ExifInterface.TAG_OFFSET_TIME_DIGITIZED,
+        ExifInterface.TAG_SUBSEC_TIME, ExifInterface.TAG_SUBSEC_TIME_ORIGINAL, ExifInterface.TAG_SUBSEC_TIME_DIGITIZED,
+        ExifInterface.TAG_MAKE, ExifInterface.TAG_MODEL, ExifInterface.TAG_SOFTWARE,
+        ExifInterface.TAG_LENS_MAKE, ExifInterface.TAG_LENS_MODEL,
+        ExifInterface.TAG_ARTIST, ExifInterface.TAG_COPYRIGHT, ExifInterface.TAG_IMAGE_DESCRIPTION, ExifInterface.TAG_USER_COMMENT,
+        ExifInterface.TAG_F_NUMBER, ExifInterface.TAG_APERTURE_VALUE, ExifInterface.TAG_EXPOSURE_TIME,
+        ExifInterface.TAG_SHUTTER_SPEED_VALUE, ExifInterface.TAG_EXPOSURE_BIAS_VALUE, ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+        ExifInterface.TAG_FOCAL_LENGTH, ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM, ExifInterface.TAG_FLASH,
+        ExifInterface.TAG_WHITE_BALANCE, ExifInterface.TAG_METERING_MODE,
+        ExifInterface.TAG_GPS_LATITUDE, ExifInterface.TAG_GPS_LATITUDE_REF,
+        ExifInterface.TAG_GPS_LONGITUDE, ExifInterface.TAG_GPS_LONGITUDE_REF,
+        ExifInterface.TAG_GPS_ALTITUDE, ExifInterface.TAG_GPS_ALTITUDE_REF,
+        ExifInterface.TAG_GPS_TIMESTAMP, ExifInterface.TAG_GPS_DATESTAMP, ExifInterface.TAG_GPS_PROCESSING_METHOD,
+        ExifInterface.TAG_GPS_IMG_DIRECTION, ExifInterface.TAG_GPS_IMG_DIRECTION_REF,
+        ExifInterface.TAG_GPS_SPEED, ExifInterface.TAG_GPS_SPEED_REF,
+    )
 
     /** Decodes received bytes for display, downsampled to keep memory bounded. */
     fun decodeForDisplay(bytes: ByteArray, maxDim: Int = 2048): Bitmap? {

@@ -14,12 +14,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -28,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -41,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nextcolor.securetap.nfc.Inbox
 import org.nextcolor.securetap.protocol.Payload
@@ -108,6 +112,21 @@ private fun Received(s: Inbox.State.Received, snackbar: SnackbarHostState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     fun show(message: String) = scope.launch { snackbar.showSnackbar(message) }
+    // Photos and files only exist in memory until saved, so Done asks before throwing one away.
+    var saved by remember(s) { mutableStateOf(false) }
+    var confirmDone by remember(s) { mutableStateOf(false) }
+    val needsSave = (s.payload is Payload.Image || s.payload is Payload.File) && !saved
+    val what = if (s.payload is Payload.Image) "photo" else "file"
+    fun save(): Boolean {
+        val uri = when (val p = s.payload) {
+            is Payload.Image -> Actions.saveImage(context, p.mimeType, p.bytes)
+            is Payload.File -> Actions.saveFile(context, p.name, p.bytes)
+            else -> return true
+        }
+        saved = uri != null
+        show(if (!saved) "Couldn't save $what" else if (s.payload is Payload.Image) "Saved to Pictures" else "Saved to Downloads")
+        return saved
+    }
     fun copy(text: String, sensitive: Boolean) {
         Actions.copy(context, text, sensitive)
         // Android 13 and later confirm copies themselves.
@@ -160,23 +179,44 @@ private fun Received(s: Inbox.State.Received, snackbar: SnackbarHostState) {
                 }
                 is Payload.Image -> {
                     val bmp = remember(p) { ImageCompressor.decodeForDisplay(p.bytes) }
-                    var saved by remember(p) { mutableStateOf(false) }
                     if (bmp != null) {
                         Image(bmp.asImageBitmap(), null, Modifier.fillMaxWidth().heightIn(max = 400.dp), contentScale = ContentScale.Fit)
-                        Button(
-                            onClick = {
-                                saved = Actions.saveImage(context, p.mimeType, p.bytes) != null
-                                show(if (saved) "Saved to Pictures" else "Couldn't save photo")
-                            },
-                            enabled = !saved,
-                        ) { IconLabel(Icons.Filled.Save, if (saved) "Saved" else "Save") }
+                        Button(onClick = { save() }, enabled = !saved) { IconLabel(Icons.Filled.Save, if (saved) "Saved" else "Save") }
                     } else {
                         Text("Couldn't show this photo", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+                is Payload.File -> {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column {
+                            Text(p.name, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                formatSize(p.bytes.size),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    Button(onClick = { save() }, enabled = !saved) {
+                        IconLabel(Icons.Filled.Save, if (saved) "Saved to Downloads" else "Save to Downloads")
                     }
                 }
             }
         }
     }
     TransferDetails(s.sas)
-    Button(onClick = Inbox::reset, Modifier.fillMaxWidth()) { Text("Done") }
+    Button(onClick = { if (needsSave) confirmDone = true else Inbox.reset() }, Modifier.fillMaxWidth()) { Text("Done") }
+
+    if (confirmDone) {
+        AlertDialog(
+            onDismissRequest = { confirmDone = false },
+            title = { Text("Save the $what first?") },
+            text = { Text("You haven't saved it yet. Once you tap Done, it's gone from this phone.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDone = false; if (save()) Inbox.reset() }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { confirmDone = false; Inbox.reset() }) { Text("Don't save") } },
+        )
+    }
 }
