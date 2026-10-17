@@ -32,6 +32,13 @@ object Outbox {
     private var session: SenderSession? = null
     private var expiresAt = 0L
 
+    /**
+     * Card emulation keeps running in the background, so the payload is only handed out while
+     * the Send screen is in front. Leaving the app pauses it; the expiry keeps counting.
+     */
+    @Volatile
+    var sendScreenVisible = false
+
     @Synchronized
     fun arm(payload: Payload, summary: String) {
         wipe()
@@ -61,6 +68,7 @@ object Outbox {
     @Synchronized
     fun handleApdu(apdu: ByteArray): ByteArray {
         expireIfDue()
+        if (!sendScreenVisible) return Protocol.SW_NOT_READY
         val s = session ?: return Protocol.SW_NOT_READY
         if (_state.value is State.Sending) expiresAt = SystemClock.elapsedRealtime() + TTL_MS
         return s.process(apdu)

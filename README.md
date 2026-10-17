@@ -28,7 +28,8 @@ to check.
 **Other protections**
 - One receiver per send: each send uses fresh keys and ends after one transfer. The payload stays
   in memory for **Send again** until you tap Done, and is wiped after 2 min without contact.
-- HCE only answers while the phone is unlocked (`requireDeviceUnlock`).
+- HCE only answers while the phone is unlocked (`requireDeviceUnlock`) and the Send screen is in
+  front. Leaving the app pauses the payload.
 - `FLAG_SECURE` blocks screenshots/recents thumbnails; backups are disabled.
 - Copied passwords are flagged as sensitive so Android 13+ hides the clipboard preview.
 - Received links are shown in full and only `http(s)` links can be opened.

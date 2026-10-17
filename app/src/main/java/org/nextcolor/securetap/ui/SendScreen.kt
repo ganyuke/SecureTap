@@ -71,12 +71,19 @@ private enum class Kind(val label: String) { Text("Text"), Link("Link"), Secret(
 fun SendScreen(activity: ComponentActivity) {
     val state by Outbox.state.collectAsState()
 
-    // While this screen is visible, make sure our HCE service wins over e.g. payment apps.
+    // Only hand the payload out while this screen is in front, and make sure our HCE service
+    // wins over e.g. payment apps meanwhile.
     val component = remember { ComponentName(activity, TransferHceService::class.java) }
     val cardEmulation = remember { CardEmulation.getInstance(NfcAdapter.getDefaultAdapter(activity)) }
     OnResume(
-        onPause = { runCatching { cardEmulation.unsetPreferredService(activity) } },
-        onResume = { runCatching { cardEmulation.setPreferredService(activity, component) } },
+        onPause = {
+            Outbox.sendScreenVisible = false
+            runCatching { cardEmulation.unsetPreferredService(activity) }
+        },
+        onResume = {
+            Outbox.sendScreenVisible = true
+            runCatching { cardEmulation.setPreferredService(activity, component) }
+        },
     )
 
     // Drops the payload if nobody picks it up, including when the phones were pulled apart mid-transfer.
