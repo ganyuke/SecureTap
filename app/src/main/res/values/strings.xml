@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">SecureTap</string>
+    <string name="hce_description">SecureTap encrypted transfer</string>
+</resources>

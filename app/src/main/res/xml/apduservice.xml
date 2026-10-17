@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<host-apdu-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/hce_description"
+    android:requireDeviceUnlock="true">
+    <!-- Proprietary AID: F0 + "SECTAP" + version 01. Must match Protocol.AID. -->
+    <aid-group android:category="other" android:description="@string/hce_description">
+        <aid-filter android:name="F053454354415001" />
+    </aid-group>
+</host-apdu-service>

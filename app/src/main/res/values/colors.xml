@@ -1,0 +1,4 @@
+<resources>
+    <!-- Also the background of fastlane/metadata/android/en-US/images/icon.png -->
+    <color name="ic_launcher_background">#5B3FB0</color>
+</resources>
