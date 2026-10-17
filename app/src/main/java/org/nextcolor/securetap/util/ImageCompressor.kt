@@ -48,9 +48,23 @@ object ImageCompressor {
         }
     }
 
-    /** Whether the picture's EXIF data says where it was taken. */
-    fun hasLocation(context: Context, uri: Uri): Boolean =
-        runCatching { context.contentResolver.openInputStream(uri)?.use { ExifInterface(it).latLong != null } }.getOrNull() == true
+    enum class Location { Present, Removed, None }
+
+    /**
+     * Where the picture says it was taken. Android removes the location by zeroing the GPS values
+     * in place, so the GPS tags are still there with nothing usable in them: that's [Location.Removed].
+     * A picture taken without location has no GPS tags at all.
+     */
+    fun location(exif: ExifInterface): Location = when {
+        exif.latLong != null -> Location.Present
+        exif.hasAttribute(ExifInterface.TAG_GPS_LATITUDE) -> Location.Removed
+        else -> Location.None
+    }
+
+    fun location(context: Context, uri: Uri): Location =
+        runCatching { context.contentResolver.openInputStream(uri)?.use { location(ExifInterface(it)) } }.getOrNull() ?: Location.None
+
+    fun location(bytes: ByteArray): Location = runCatching { location(ExifInterface(bytes.inputStream())) }.getOrDefault(Location.None)
 
     /**
      * Copies date, camera and location tags from the picture at [source] into a JPEG made by
@@ -66,6 +80,28 @@ object ImageCompressor {
             for (tag in KEPT_TAGS) from.getAttribute(tag)?.let { to.setAttribute(tag, it) }
             to.saveAttributes()
             return tmp.readBytes()
+        } finally {
+            tmp.delete()
+        }
+    }
+
+    /**
+     * The file with its metadata removed by [MetadataStripper], pixels untouched. The orientation
+     * is put back so the picture still shows upright.
+     */
+    fun withoutMetadata(context: Context, bytes: ByteArray): ByteArray {
+        val stripped = MetadataStripper.strip(bytes)
+        val orientation = runCatching {
+            ExifInterface(bytes.inputStream()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        if (orientation == ExifInterface.ORIENTATION_NORMAL || orientation == ExifInterface.ORIENTATION_UNDEFINED) return stripped
+        val tmp = File.createTempFile("strip", null, context.cacheDir)
+        try {
+            tmp.writeBytes(stripped)
+            ExifInterface(tmp).apply { setAttribute(ExifInterface.TAG_ORIENTATION, orientation.toString()) }.saveAttributes()
+            return tmp.readBytes()
+        } catch (e: Exception) {
+            return stripped
         } finally {
             tmp.delete()
         }

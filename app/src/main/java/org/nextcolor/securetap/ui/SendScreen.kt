@@ -3,11 +3,13 @@ package org.nextcolor.securetap.ui
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.cardemulation.CardEmulation
+import android.os.Build
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,8 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -46,7 +47,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,6 +77,7 @@ import org.nextcolor.securetap.nfc.TransferHceService
 import org.nextcolor.securetap.protocol.Payload
 import org.nextcolor.securetap.util.Actions
 import org.nextcolor.securetap.util.ImageCompressor
+import org.nextcolor.securetap.util.ImageCompressor.Location
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -154,15 +155,16 @@ private fun Composer() {
     var text by remember { mutableStateOf("") }
     var reveal by remember { mutableStateOf(false) }
     var photo by remember { mutableStateOf<PickedPhoto?>(null) }
-    var useOriginal by remember { mutableStateOf(false) }
+    var compress by remember { mutableStateOf(true) }
     val prefs = remember { context.getSharedPreferences("settings", Context.MODE_PRIVATE) }
     var keepInfo by remember { mutableStateOf(prefs.getBoolean(KEEP_INFO, false)) }
     var file by remember { mutableStateOf<Payload.File?>(null) }
+    var fileUri by remember { mutableStateOf<Uri?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<Payload?>(null) }
 
-    fun loadPhoto(uri: Uri, keepChoice: Boolean = false) {
+    fun loadPhoto(uri: Uri) {
         busy = true
         error = null
         scope.launch {
@@ -172,30 +174,19 @@ private fun Composer() {
                 error = "Couldn't open this photo. Try another one."
                 null
             }
-            if (!keepChoice) useOriginal = false
+            compress = true
             busy = false
         }
     }
 
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
+    val photoPicker = rememberLauncherForActivityResult(PickPhotoWithLocation()) { uri: Uri? ->
         if (uri != null) loadPhoto(uri)
     }
 
-    // Without this Android hands over photos with the location removed. Once granted, read the
-    // photo again so the location shows up.
-    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) photo?.let { loadPhoto(it.uri, keepChoice = true) }
-    }
-    fun askForLocation() {
-        if (context.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            locationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION)
-        }
-    }
-
-    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    fun loadFile(uri: Uri) {
         busy = true
         error = null
+        fileUri = uri
         scope.launch {
             file = try {
                 val (name, bytes) = withContext(Dispatchers.IO) {
@@ -211,6 +202,18 @@ private fun Composer() {
             }
             busy = false
         }
+    }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) loadFile(uri)
+    }
+
+    // Files opened without this have the location removed from photos. Once granted, read the
+    // file again so the location comes along.
+    var canSeeLocation by remember { mutableStateOf(hasMediaLocation(context)) }
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        canSeeLocation = granted
+        if (granted) fileUri?.let { loadFile(it) }
     }
 
     // Wraps instead of squeezing the last chip off narrow screens.
@@ -274,52 +277,34 @@ private fun Composer() {
                         Modifier.fillMaxWidth().heightIn(max = 280.dp), contentScale = ContentScale.Fit,
                     )
                 }
-                Column(Modifier.selectableGroup()) {
-                    QualityOption(
-                        selected = !useOriginal,
-                        enabled = true,
-                        title = "Compressed",
-                        detail = formatSize(p.bytes(useOriginal = false, keepInfo).size) +
-                            if (keepInfo) " · Keeps location and camera info" else " · Location and camera info removed",
-                        onClick = { useOriginal = false },
-                    )
-                    QualityOption(
-                        selected = useOriginal,
-                        enabled = p.original != null,
-                        title = "Original quality",
-                        detail = when {
-                            p.original != null -> "${formatSize(p.original.size)} · The file exactly as it is, location and camera info included"
-                            p.originalTooBig -> "Too big to send. Photos can be up to ${formatSize(MAX_DATA)}."
-                            else -> "Only JPEG, PNG and WebP photos can be sent as they are. Try sending it as a File."
-                        },
-                        onClick = { useOriginal = true; askForLocation() },
-                    )
-                }
-                if (!useOriginal) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("Keep location and camera info", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                when {
-                                    !keepInfo -> "Off: the receiver won't see where or with what it was taken"
-                                    p.hasLocation -> "On: includes where it was taken"
-                                    else -> "On: this photo has no location info"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Switch(
-                            checked = keepInfo,
-                            onCheckedChange = {
-                                keepInfo = it
-                                prefs.edit().putBoolean(KEEP_INFO, it).apply()
-                                if (it) askForLocation()
-                            },
-                        )
-                    }
-                }
-                SizeNote(p.bytes(useOriginal, keepInfo).size)
+                OptionSwitch(
+                    title = "Compress",
+                    detail = when {
+                        p.original == null && p.originalTooBig -> "Too big to send uncompressed. Photos can be up to ${formatSize(MAX_DATA)}."
+                        p.original == null -> "Only JPEG, PNG and WebP photos can be sent uncompressed. Try sending it as a File."
+                        compress -> "On: smaller and faster to send"
+                        else -> "Off: full quality, exactly as taken"
+                    },
+                    checked = compress || p.original == null,
+                    enabled = p.original != null,
+                    onChange = { compress = it },
+                )
+                OptionSwitch(
+                    title = "Keep location and camera info",
+                    detail = when {
+                        !keepInfo -> "Off: the receiver won't see where or with what it was taken"
+                        p.location == Location.Present -> "On: includes where it was taken"
+                        p.location == Location.None -> "On: this photo has no location info"
+                        pickerCanShareLocation() -> "On: location sharing is off in the photo picker. Turn it on there and choose the photo again."
+                        else -> "On: Android removed the location when you chose this photo. To keep it, send the photo as a File."
+                    },
+                    checked = keepInfo,
+                    onChange = {
+                        keepInfo = it
+                        prefs.edit().putBoolean(KEEP_INFO, it).apply()
+                    },
+                )
+                SizeNote(p.bytes(compress, keepInfo).size)
             }
         }
         Kind.File -> {
@@ -331,6 +316,19 @@ private fun Composer() {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.AutoMirrored.Filled.InsertDriveFile, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(f.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (!canSeeLocation && ImageCompressor.location(f.bytes) == Location.Removed) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Android removed where this photo was taken",
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        TextButton(onClick = { locationPermission.launch(Manifest.permission.ACCESS_MEDIA_LOCATION) }) {
+                            Text("Allow")
+                        }
+                    }
                 }
                 SizeNote(f.bytes.size)
             }
@@ -344,7 +342,7 @@ private fun Composer() {
         Kind.Link -> text.trim().takeIf { it.isNotEmpty() }?.let { Payload.Link(if ("://" in it) it else "https://$it") }
         Kind.Secret -> text.takeIf { it.isNotEmpty() }?.let { Payload.Secret(it) }
         Kind.Image -> photo?.let {
-            Payload.Image(if (useOriginal && it.original != null) it.originalMime else "image/jpeg", it.bytes(useOriginal, keepInfo))
+            Payload.Image(if (!compress && it.original != null) it.originalMime else "image/jpeg", it.bytes(compress, keepInfo))
         }
         Kind.File -> file
     }
@@ -392,7 +390,7 @@ private fun Composer() {
                 Text(
                     "Sending ${formatSize(size)} takes about ${transferTime(size)}. You'll have to hold the phones " +
                         "together the whole time. If they slip apart, tap them together again to continue." +
-                        if (p is Payload.Image && useOriginal) "\n\nThe compressed photo sends much faster." else "",
+                        if (p is Payload.Image && !compress) "\n\nThe compressed photo sends much faster." else "",
                 )
             },
             confirmButton = { TextButton(onClick = { confirm = null; send(p) }) { Text("Send anyway") } },
@@ -402,58 +400,70 @@ private fun Composer() {
 }
 
 @Composable
-private fun QualityOption(selected: Boolean, enabled: Boolean, title: String, detail: String, onClick: () -> Unit) {
+private fun OptionSwitch(title: String, detail: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth()
-            .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RadioButton(selected = selected, onClick = null, enabled = enabled)
-        Column(Modifier.padding(start = 12.dp)) {
-            val alpha = if (enabled) 1f else 0.6f
-            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.alpha(alpha))
-            Text(
-                detail,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.alpha(alpha),
-            )
+        val alpha = if (enabled) 1f else 0.6f
+        Column(Modifier.weight(1f).padding(end = 12.dp).alpha(alpha)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 
 /**
- * A picked photo, shrunk for a quick send with and without its metadata, plus the untouched file
- * when it can be sent as is.
+ * A picked photo, shrunk for a quick send with and without its metadata, plus the file as it is,
+ * with and without its metadata, when it can be sent uncompressed.
  */
 private class PickedPhoto(
-    val uri: Uri,
     val compressed: ByteArray,
     val compressedWithInfo: ByteArray,
-    val hasLocation: Boolean,
+    val location: Location,
     val original: ByteArray?,
+    val originalWithoutInfo: ByteArray?,
     val originalMime: String,
     val originalTooBig: Boolean,
 ) {
-    fun bytes(useOriginal: Boolean, keepInfo: Boolean) = when {
-        useOriginal && original != null -> original
+    fun bytes(compress: Boolean, keepInfo: Boolean) = when {
+        !compress && original != null -> if (keepInfo) original else originalWithoutInfo ?: original
         keepInfo -> compressedWithInfo
         else -> compressed
     }
 }
 
+/**
+ * The photo picker removes the location unless the app asks for it, and then the user decides.
+ * Pickers from before Android 17.1 ignore the request.
+ */
+private class PickPhotoWithLocation : ActivityResultContracts.PickVisualMedia() {
+    override fun createIntent(context: Context, input: PickVisualMediaRequest): Intent =
+        // MediaStore.EXTRA_REQUEST_LOCATION_METADATA_ACCESS, added in 37.1.
+        super.createIntent(context, input).putExtra("android.provider.extra.REQUEST_LOCATION_METADATA_ACCESS", true)
+}
+
+/** Android 17.1 (VERSION_CODES_FULL.CINNAMON_BUN_1) and up: the picker can hand over the location. */
+private fun pickerCanShareLocation() = Build.VERSION.SDK_INT >= 36 && Build.VERSION.SDK_INT_FULL >= 3_700_001
+
+private fun hasMediaLocation(context: Context) =
+    context.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) == PackageManager.PERMISSION_GRANTED
+
 private fun pickPhoto(context: Context, uri: Uri): PickedPhoto {
     val compressed = ImageCompressor.compress(context, uri)
     val withInfo = runCatching { ImageCompressor.copyMetadata(context, uri, compressed) }.getOrDefault(compressed)
-    val hasLocation = ImageCompressor.hasLocation(context, uri)
+    val location = ImageCompressor.location(context, uri)
     val mime = context.contentResolver.getType(uri).orEmpty()
     if (mime !in Payload.ALLOWED_IMAGE_TYPES) {
-        return PickedPhoto(uri, compressed, withInfo, hasLocation, null, mime, originalTooBig = false)
+        return PickedPhoto(compressed, withInfo, location, null, null, mime, originalTooBig = false)
     }
     // Skip reading when the provider already says it's too big.
     val original = if ((Actions.describe(context, uri).size ?: 0) > MAX_DATA) null else Actions.readUpTo(context, uri, MAX_DATA)
-    return PickedPhoto(uri, compressed, withInfo, hasLocation, original, mime, originalTooBig = original == null)
+    val withoutInfo = original?.let { ImageCompressor.withoutMetadata(context, it) }
+    return PickedPhoto(compressed, withInfo, location, original, withoutInfo, mime, originalTooBig = original == null)
 }
 
 private fun sizeOf(p: Payload): Int = when (p) {
