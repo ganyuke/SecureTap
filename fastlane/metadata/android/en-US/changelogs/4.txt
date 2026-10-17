@@ -1,0 +1,5 @@
+Photos can keep where they were taken: on Android 17.1 the photo picker asks whether to include it.
+Photos sent as a File keep their location once you allow it.
+SecureTap tells you when Android removed a photo's location, and how to keep it.
+Compression and keeping location and camera info are now separate switches.
+Full-quality photos can be sent without their metadata.
