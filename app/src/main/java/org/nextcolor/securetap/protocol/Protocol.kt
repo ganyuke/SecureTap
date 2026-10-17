@@ -7,7 +7,10 @@ package org.nextcolor.securetap.protocol
  *   SELECT AID          -> version(1) || senderPub(65) || sessionId(16) || plaintextLen(4)
  *   KEY  readerPub(65)  -> blobLen(4)                  (sender derives keys, encrypts payload)
  *   READ offset(4) len(2) -> blob[offset, offset+len)
- *   FINISH              -> (empty)                     (receiver verified the GCM tag)
+ *   FINISH name         -> (empty)                     (receiver verified the GCM tag)
+ *
+ * FINISH carries the receiver's device name, encrypted with the session key, so the sender can
+ * show which phone got the payload.
  *
  * Re-sending KEY with the same reader key returns the same ciphertext, so a receiver whose
  * phone slipped away mid-transfer can tap again and continue READing from where it stopped.
@@ -23,6 +26,10 @@ object Protocol {
     const val INS_FINISH: Byte = 0x30
 
     const val SESSION_ID_SIZE = 16
+
+    /** Associated-data label for the receiver's name in FINISH, and its maximum UTF-8 length. */
+    const val RECEIVER_NAME_LABEL = "receiver-name"
+    const val MAX_RECEIVER_NAME_BYTES = 64
 
     val SW_OK = sw(0x9000)
     val SW_NOT_READY = sw(0x6A82)       // nothing armed to send

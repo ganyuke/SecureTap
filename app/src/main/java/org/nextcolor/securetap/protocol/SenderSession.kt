@@ -15,7 +15,8 @@ class SenderSession(
     interface Events {
         fun onReceiverConnected(sas: String)
         fun onProgress(sent: Int, total: Int)
-        fun onFinished()
+        /** [receiverName] is the name the receiving phone reported. */
+        fun onFinished(receiverName: String)
     }
 
     private var plaintext: ByteArray? = plaintext
@@ -23,6 +24,7 @@ class SenderSession(
     private val keyPair = SessionCrypto.generateKeyPair(random)
     private val senderPub = SessionCrypto.encodePublicKey(keyPair.public)
     private var readerPub: ByteArray? = null
+    private var keys: SessionCrypto.SessionKeys? = null
     private var blob: ByteArray? = null
     private var selected = false
 
@@ -47,7 +49,7 @@ class SenderSession(
         return when (ins) {
             Protocol.INS_KEY -> keyExchange(data)
             Protocol.INS_READ -> read(data)
-            Protocol.INS_FINISH -> finish()
+            Protocol.INS_FINISH -> finish(data)
             else -> Protocol.SW_INS_UNSUPPORTED
         }
     }
@@ -62,6 +64,8 @@ class SenderSession(
     fun wipe() {
         plaintext?.fill(0)
         plaintext = null
+        keys?.aesKey?.fill(0)
+        keys = null
         blob = null
     }
 
@@ -73,16 +77,18 @@ class SenderSession(
             return Protocol.intBytes(existing.size) + Protocol.SW_OK
         }
         val pt = plaintext ?: return Protocol.SW_BAD_STATE
-        val keys = try {
+        val newKeys = try {
             SessionCrypto.deriveKeys(keyPair.private, data, senderPub, data, sessionId)
         } catch (e: Exception) {
             return Protocol.SW_BAD_DATA
         }
-        val encrypted = SessionCrypto.encrypt(keys, pt, random)
-        keys.aesKey.fill(0)
+        val encrypted = SessionCrypto.encrypt(newKeys, pt, random)
+        // Kept until FINISH to read the receiver's name.
+        keys?.aesKey?.fill(0)
+        keys = newKeys
         readerPub = data.copyOf()
         blob = encrypted
-        events.onReceiverConnected(keys.sas)
+        events.onReceiverConnected(newKeys.sas)
         return Protocol.intBytes(encrypted.size) + Protocol.SW_OK
     }
 
@@ -97,11 +103,17 @@ class SenderSession(
         return b.copyOfRange(offset, end) + Protocol.SW_OK
     }
 
-    private fun finish(): ByteArray {
-        if (blob == null) return Protocol.SW_BAD_STATE
+    private fun finish(data: ByteArray): ByteArray {
+        val k = keys
+        if (blob == null || k == null) return Protocol.SW_BAD_STATE
+        val name = try {
+            String(SessionCrypto.decrypt(k, data, Protocol.RECEIVER_NAME_LABEL), Charsets.UTF_8)
+        } catch (e: Exception) {
+            return Protocol.SW_BAD_DATA
+        }
         finished = true
         wipe()
-        events.onFinished()
+        events.onFinished(name)
         return Protocol.SW_OK
     }
 

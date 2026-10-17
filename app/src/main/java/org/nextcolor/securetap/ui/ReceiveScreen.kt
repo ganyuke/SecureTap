@@ -55,7 +55,10 @@ fun ReceiveScreen(activity: ComponentActivity, adapter: NfcAdapter, snackbar: Sn
     // Reader mode turns off this phone's own card emulation, so only enable it on this screen.
     OnResume(
         onPause = { adapter.disableReaderMode(activity) },
-        onResume = { adapter.enableReaderMode(activity, Inbox, Inbox.READER_FLAGS, null) },
+        onResume = {
+            Inbox.deviceName = Actions.deviceName(activity)
+            adapter.enableReaderMode(activity, Inbox, Inbox.READER_FLAGS, null)
+        },
     )
 
     Column(

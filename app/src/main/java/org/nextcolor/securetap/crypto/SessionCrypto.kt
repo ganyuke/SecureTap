@@ -104,18 +104,22 @@ object SessionCrypto {
         return SessionKeys(aesKey, transcript, "%03d %03d".format(sasNum / 1000, sasNum % 1000))
     }
 
-    /** Returns nonce || ciphertext || tag. */
-    fun encrypt(keys: SessionKeys, plaintext: ByteArray, random: SecureRandom = SecureRandom()): ByteArray {
+    /**
+     * Returns nonce || ciphertext || tag. [label] is added to the associated data, so messages
+     * with different purposes can't be swapped for each other.
+     */
+    fun encrypt(keys: SessionKeys, plaintext: ByteArray, random: SecureRandom = SecureRandom(), label: String = ""): ByteArray {
         val nonce = ByteArray(NONCE_SIZE).also(random::nextBytes)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(Cipher.ENCRYPT_MODE, SecretKeySpec(keys.aesKey, "AES"), GCMParameterSpec(TAG_BITS, nonce))
             updateAAD(keys.transcript)
+            if (label.isNotEmpty()) updateAAD(label.toByteArray())
         }
         return nonce + cipher.doFinal(plaintext)
     }
 
     /** Throws [javax.crypto.AEADBadTagException] if the data was tampered with. */
-    fun decrypt(keys: SessionKeys, blob: ByteArray): ByteArray {
+    fun decrypt(keys: SessionKeys, blob: ByteArray, label: String = ""): ByteArray {
         if (blob.size < NONCE_SIZE + TAG_BITS / 8) throw GeneralSecurityException("Ciphertext too short")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply {
             init(
@@ -124,6 +128,7 @@ object SessionCrypto {
                 GCMParameterSpec(TAG_BITS, blob, 0, NONCE_SIZE),
             )
             updateAAD(keys.transcript)
+            if (label.isNotEmpty()) updateAAD(label.toByteArray())
         }
         return cipher.doFinal(blob, NONCE_SIZE, blob.size - NONCE_SIZE)
     }

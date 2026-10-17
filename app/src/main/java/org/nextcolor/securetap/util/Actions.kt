@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PersistableBundle
 import android.provider.MediaStore
+import android.provider.Settings
 import android.content.ClipboardManager
 
 object Actions {
@@ -24,6 +25,11 @@ object Actions {
         }
         context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
     }
+
+    /** The name the user gave this phone in Settings, or its model if there isn't one. */
+    fun deviceName(context: Context): String =
+        Settings.Global.getString(context.contentResolver, Settings.Global.DEVICE_NAME)?.takeIf { it.isNotBlank() }
+            ?: Build.MODEL
 
     /** Only http(s) links are opened, so a sender can't push intent:, file: or javascript: URIs. */
     fun safeWebUri(url: String): Uri? {

@@ -18,7 +18,8 @@ object Outbox {
         data class Armed(val summary: String, val expiresAt: Long) : State
         /** [connected] is false while the phones are apart mid-transfer. */
         data class Sending(val summary: String, val sas: String, val sent: Int, val total: Int, val connected: Boolean) : State
-        data class Sent(val summary: String, val sas: String) : State
+        /** [receiverName] is what the receiving phone called itself, so it can be faked. */
+        data class Sent(val summary: String, val sas: String, val receiverName: String) : State
     }
 
     /** How long a payload is kept, counted from arming, the last contact, or the last send. */
@@ -93,9 +94,9 @@ object Outbox {
                 (_state.value as? State.Sending)?.let { _state.value = it.copy(sent = sent, total = total, connected = true) }
             }
 
-            override fun onFinished() {
+            override fun onFinished(receiverName: String) {
                 // FINISH is only accepted after KEY, so we're always in Sending here.
-                _state.value = State.Sent(summary, (_state.value as? State.Sending)?.sas.orEmpty())
+                _state.value = State.Sent(summary, (_state.value as? State.Sending)?.sas.orEmpty(), receiverName)
                 session = null
                 expiresAt = SystemClock.elapsedRealtime() + TTL_MS
             }

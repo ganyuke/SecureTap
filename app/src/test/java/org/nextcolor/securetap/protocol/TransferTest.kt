@@ -10,12 +10,17 @@ import java.io.IOException
 import java.security.GeneralSecurityException
 
 class TransferTest {
+    private companion object {
+        const val NAME = "Test phone"
+    }
+
     private class Recorder : SenderSession.Events {
         var sas: String? = null
         var finished = false
+        var receiverName: String? = null
         override fun onReceiverConnected(sas: String) { this.sas = sas }
         override fun onProgress(sent: Int, total: Int) {}
-        override fun onFinished() { finished = true }
+        override fun onFinished(receiverName: String) { finished = true; this.receiverName = receiverName }
     }
 
     private fun transfer(payload: Payload): Pair<Payload, Boolean> {
@@ -23,7 +28,7 @@ class TransferTest {
         val sender = SenderSession(payload.encode(), events)
         // Like card emulation on a real phone: responses longer than a short APDU get cut off.
         val hce = ApduTransport { apdu -> sender.process(apdu).let { if (it.size > 256) it.copyOf(256) else it } }
-        val result = ReceiverSession().run(hce)
+        val result = ReceiverSession().run(hce, NAME)
         assertEquals(events.sas, result.sas)
         return result.payload to events.finished
     }
@@ -63,12 +68,12 @@ class TransferTest {
             sender.process(apdu)
         }
         try {
-            receiver.run(flaky)
+            receiver.run(flaky, NAME)
             fail("expected link loss")
         } catch (_: IOException) {}
 
         var resumedFrom = -1
-        val result = receiver.run(sender::process, onProgress = { r, _ -> if (resumedFrom < 0) resumedFrom = r })
+        val result = receiver.run(sender::process, NAME, onProgress = { r, _ -> if (resumedFrom < 0) resumedFrom = r })
         assertTrue("should resume, not restart", resumedFrom > 29 * ReceiverSession.SHORT_CHUNK)
         assertArrayEquals(bytes, (result.payload as Payload.Image).bytes)
     }
@@ -81,7 +86,7 @@ class TransferTest {
             if (apdu[1] == Protocol.INS_READ) resp.also { it[3] = (it[3].toInt() xor 1).toByte() } else resp
         }
         try {
-            ReceiverSession().run(evil)
+            ReceiverSession().run(evil, NAME)
             fail("tampering not detected")
         } catch (_: GeneralSecurityException) {}
     }
@@ -89,9 +94,9 @@ class TransferTest {
     @Test
     fun senderIsSingleUse() {
         val sender = SenderSession(Payload.Text("once").encode(), Recorder())
-        ReceiverSession().run(sender::process)
+        ReceiverSession().run(sender::process, NAME)
         try {
-            ReceiverSession().run(sender::process)
+            ReceiverSession().run(sender::process, NAME)
             fail("second receiver got the payload")
         } catch (_: ProtocolException) {}
     }
@@ -101,10 +106,55 @@ class TransferTest {
         // An attacker in the middle runs one session with each side; codes can't match.
         val events = Recorder()
         val sender = SenderSession(Payload.Secret("pw").encode(), events)
-        val attackerAsReader = ReceiverSession().run(sender::process)
+        val attackerAsReader = ReceiverSession().run(sender::process, NAME)
         val attackerAsSender = SenderSession(attackerAsReader.payload.encode(), Recorder())
-        val victim = ReceiverSession().run(attackerAsSender::process)
+        val victim = ReceiverSession().run(attackerAsSender::process, NAME)
         assertNotEquals(events.sas, victim.sas)
+    }
+
+    @Test
+    fun senderLearnsReceiverName() {
+        val events = Recorder()
+        val sender = SenderSession(Payload.Text("hi").encode(), events)
+        ReceiverSession().run(sender::process, "Pixel 8")
+        assertEquals("Pixel 8", events.receiverName)
+    }
+
+    @Test
+    fun longReceiverNameIsShortenedWithoutBreakingCharacters() {
+        val events = Recorder()
+        val sender = SenderSession(Payload.Text("hi").encode(), events)
+        ReceiverSession().run(sender::process, "📱".repeat(40))
+        assertEquals("📱".repeat(Protocol.MAX_RECEIVER_NAME_BYTES / 4), events.receiverName)
+    }
+
+    @Test
+    fun finishWithoutNameIsRejected() {
+        val events = Recorder()
+        val sender = SenderSession(Payload.Text("hi").encode(), events)
+        val stripName = ApduTransport { apdu ->
+            sender.process(if (apdu[1] == Protocol.INS_FINISH) Protocol.command(Protocol.INS_FINISH) else apdu)
+        }
+        try {
+            ReceiverSession().run(stripName, NAME)
+            fail("finish without a name was accepted")
+        } catch (_: ProtocolException) {}
+        assertTrue(!events.finished)
+    }
+
+    @Test
+    fun tamperedReceiverNameIsRejected() {
+        val events = Recorder()
+        val sender = SenderSession(Payload.Text("hi").encode(), events)
+        val evil = ApduTransport { apdu ->
+            if (apdu[1] == Protocol.INS_FINISH) apdu[apdu.size - 3] = (apdu[apdu.size - 3].toInt() xor 1).toByte()
+            sender.process(apdu)
+        }
+        try {
+            ReceiverSession().run(evil, "Pixel 8")
+            fail("tampered name was accepted")
+        } catch (_: ProtocolException) {}
+        assertTrue(!events.finished)
     }
 
     @Test

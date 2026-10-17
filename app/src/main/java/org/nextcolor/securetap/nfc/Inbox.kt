@@ -1,6 +1,7 @@
 package org.nextcolor.securetap.nfc
 
 import android.nfc.NfcAdapter
+import android.os.Build
 import android.nfc.Tag
 import android.nfc.TagLostException
 import android.nfc.tech.IsoDep
@@ -29,6 +30,10 @@ object Inbox : NfcAdapter.ReaderCallback {
 
     private var session = ReceiverSession()
 
+    /** This phone's name, shown on the sending phone after a transfer. Set by the Receive screen. */
+    @Volatile
+    var deviceName: String = Build.MODEL
+
     const val READER_FLAGS = NfcAdapter.FLAG_READER_NFC_A or
         NfcAdapter.FLAG_READER_NFC_B or
         NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or
@@ -50,6 +55,7 @@ object Inbox : NfcAdapter.ReaderCallback {
             iso.timeout = 5_000
             val result = session.run(
                 transport = { iso.transceive(it) },
+                deviceName = deviceName,
                 onConnected = { _state.value = State.Receiving(0, 1) },
                 onProgress = { r, t -> _state.value = State.Receiving(r, t) },
             )

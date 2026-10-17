@@ -24,11 +24,13 @@ class ReceiverSession(private val random: SecureRandom = SecureRandom()) {
     private var received = 0
 
     /**
+     * @param deviceName shown on the sending phone so its user can tell which phone got the payload
      * @throws IOException when the link drops (keep this session to resume)
      * @throws ProtocolException / GeneralSecurityException on a bad or tampered transfer
      */
     fun run(
         transport: ApduTransport,
+        deviceName: String,
         onConnected: (sas: String) -> Unit = {},
         onProgress: (received: Int, total: Int) -> Unit = { _, _ -> },
     ): Result {
@@ -74,7 +76,8 @@ class ReceiverSession(private val random: SecureRandom = SecureRandom()) {
 
         val plaintext = SessionCrypto.decrypt(k, buf) // throws if tampered
         try {
-            checkOk(transport.transceive(Protocol.command(Protocol.INS_FINISH)), "Finish rejected")
+            val name = SessionCrypto.encrypt(k, truncateUtf8(deviceName), random, Protocol.RECEIVER_NAME_LABEL)
+            checkOk(transport.transceive(Protocol.command(Protocol.INS_FINISH, name)), "Finish rejected")
         } catch (_: IOException) {
             // We already have the verified data; the sender just won't see the confirmation.
         }
@@ -98,6 +101,15 @@ class ReceiverSession(private val random: SecureRandom = SecureRandom()) {
         val sw2 = resp[resp.size - 1]
         if (sw1 != 0x90.toByte() || sw2 != 0x00.toByte()) throw ProtocolException(error, reason)
         return resp.copyOfRange(0, resp.size - 2)
+    }
+
+    /** Shortens [name] to fit [Protocol.MAX_RECEIVER_NAME_BYTES], dropping whole characters. */
+    private fun truncateUtf8(name: String): ByteArray {
+        var s = name.trim()
+        while (s.toByteArray(Charsets.UTF_8).size > Protocol.MAX_RECEIVER_NAME_BYTES) {
+            s = s.substring(0, s.offsetByCodePoints(s.length, -1))
+        }
+        return s.toByteArray(Charsets.UTF_8)
     }
 
     companion object {

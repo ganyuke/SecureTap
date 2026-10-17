@@ -111,7 +111,7 @@ fun SendScreen(activity: ComponentActivity) {
             is Outbox.State.Sent -> {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Sent", style = MaterialTheme.typography.headlineSmall)
+                    Text("Sent to ${s.receiverName}", style = MaterialTheme.typography.headlineSmall)
                 }
                 Text(s.summary)
                 Text(

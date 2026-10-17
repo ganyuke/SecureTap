@@ -14,7 +14,7 @@ phone reads it in **reader mode** using ISO-DEP APDUs.
 | SELECT | proprietary AID `F053454354415001` | version, ephemeral P-256 public key, session id, length |
 | KEY | receiver's ephemeral P-256 public key | ciphertext length (sender has now encrypted the payload) |
 | READ ×N | offset + length | ciphertext chunk |
-| FINISH | — | OK (sender wipes the payload) |
+| FINISH | receiver's device name, encrypted | OK (sender shows "Sent to <name>") |
 
 **Crypto:** ECDH P-256 (fresh keys per transfer, so forward secrecy) → HKDF-SHA256 (salted
 with the session id, info bound to a SHA-256 transcript of both keys) → AES-256-GCM, with the
@@ -33,6 +33,8 @@ to check.
 - `FLAG_SECURE` blocks screenshots/recents thumbnails; backups are disabled.
 - Copied passwords are flagged as sensitive so Android 13+ hides the clipboard preview.
 - Received links are shown in full and only `http(s)` links can be opened.
+- The sender sees the name the receiving phone gives itself, so a tap to the wrong phone is
+  noticed. The name can be faked by a modified receiver.
 - Photos are re-encoded as JPEG ≤ 120 KB, which also strips EXIF metadata such as GPS.
 - If the phones slip apart, tapping again **resumes** from the last received byte.
 
